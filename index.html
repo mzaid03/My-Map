@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mini Maps — Directions & My Location</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: #0b0d13;
+      --panel: #121623;
+      --muted: #9aa3b2;
+      --text: #e8ecf1;
+      --accent: #6ee7b7;
+      --accent-2: #60a5fa;
+      --danger: #fb7185;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
+
+    .app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+    @media (max-width: 900px){ .app { grid-template-columns: 1fr; grid-template-rows: 420px 1fr; } }
+
+    /* Sidebar */
+    .sidebar { padding: 16px; background: var(--panel); border-right: 1px solid rgba(255,255,255,.06); overflow: auto; }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom: 14px; }
+    .brand .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: var(--shadow); }
+    .brand h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing:.3px; }
+    .muted { color: var(--muted); font-size: 12px; }
+
+    .card { background: #0e1220; border: 1px solid rgba(255,255,255,.06); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }
+    .group { display:grid; gap:10px; }
+
+    label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display:block; }
+    .row { display:flex; gap:8px; align-items: center; }
+
+    .in { 
+      width: 100%;
+      background: #0b0f1a; color: var(--text);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 12px;
+      padding: 12px 12px; outline: none; font-size: 14px;
+    }
+    .in:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(96,165,250,.2); }
+
+    button, .btn {
+      appearance: none; border: 0; cursor: pointer;
+      background: #10172a; color: #eaf2ff; border: 1px solid rgba(255,255,255,.09);
+      padding: 10px 12px; border-radius: 12px; font-weight: 600; font-size: 14px;
+      transition: transform .02s ease, background .2s ease, border-color .2s ease;
+    }
+    button:hover { background: #14203a; }
+    button:active { transform: translateY(1px); }
+
+    .btn-accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color:#07121f; border:none; }
+    .btn-danger { background: #2a0f16; color:#ffe8ec; border:1px solid #3a151e; }
+
+    .segmented { display:flex; background:#0b0f1a; border:1px solid rgba(255,255,255,.08); border-radius: 10px; }
+    .segmented button { flex:1; background: transparent; border: none; padding:8px; font-size: 12px; color: var(--muted); }
+    .segmented button.active { color: #07121f; background: var(--accent); font-weight: 700; border-radius: 9px; }
+
+    .results { margin-top: 8px; display: grid; gap: 6px; }
+    .result { background:#0b0f1a; border:1px solid rgba(255,255,255,.06); padding:8px; border-radius: 8px; cursor:pointer; }
+    .result:hover { background:#0f1626; }
+
+    .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    .summary { margin-top: 12px; font-size: 14px; }
+
+    .steps { margin-top: 10px; max-height: 280px; overflow:auto; padding-right: 6px; }
+    .step { padding: 8px; border-radius: 8px; background: #0b0f1a; border: 1px solid rgba(255,255,255,.06); margin-bottom: 6px; }
+
+    .footer-note { font-size: 11px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+
+    /* Map */
+    #map { width: 100%; height: 100%; }
+    .map-wrap { position: relative; }
+    .loc-btn { position: absolute; right: 12px; top: 12px; z-index: 500; }
+    .clear-btn { position: absolute; right: 12px; top: 56px; z-index: 500; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>Mini Maps</h1>
+          <div class="muted">Find me • Search • Route</div>
+        </div>
+      </div>
+
+      <div class="card group" style="margin-bottom:10px">
+        <div class="group">
+          <div>
+            <label for="from">From</label>
+            <div class="row">
+              <input id="from" class="in" placeholder="Address or place…" />
+              <button id="fromUseMe" title="Use my location">📍</button>
+              <button id="fromSearch" title="Search address">🔎</button>
+            </div>
+            <div id="fromResults" class="results"></div>
+          </div>
+          <div>
+            <label for="to">To</label>
+            <div class="row">
+              <input id="to" class="in" placeholder="Address or place…" />
+              <button id="toUseMe" title="Use my location">📍</button>
+              <button id="toSearch" title="Search address">🔎</button>
+            </div>
+            <div id="toResults" class="results"></div>
+          </div>
+          <div class="row">
+            <button id="swap">⇅ Swap</button>
+            <select id="mode" class="in" style="max-width:180px">
+              <option value="driving" selected>Driving</option>
+              <option value="walking">Walking</option>
+              <option value="cycling">Cycling</option>
+            </select>
+          </div>
+          <div class="row">
+            <button id="route" class="btn-accent" style="flex:1">Get Directions</button>
+          </div>
+          <div>
+            <label>Click Map To Set</label>
+            <div class="segmented">
+              <button data-pick="none" class="active">Off</button>
+              <button data-pick="start">Start</button>
+              <button data-pick="end">End</button>
+            </div>
+            <div class="hint">Tip: You can click the map to pick start or end. Use 📍 to fill your current location.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="summary" id="summary">No route yet.</div>
+        <div id="steps" class="steps"></div>
+        <div class="footer-note">
+          Uses OpenStreetMap tiles + OSRM routing + Nominatim geocoding. Be kind to public servers; for production, use your own tile/routing/geocoding provider and API keys.
+        </div>
+      </div>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map"></div>
+      <button class="loc-btn" id="locBtn">📍 Locate Me</button>
+      <button class="clear-btn btn-danger" id="clearBtn">✖ Clear</button>
+    </main>
+  </div>
+
+  <script>
+    // ------------------------ Map Setup ------------------------
+    const map = L.map('map');
+    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Default center (if geolocation denied)
+    map.setView([32.8801, -117.2340], 12); // UCSD-ish
+
+    // Markers & layers
+    let startMarker = null;
+    let endMarker = null;
+    let routeLayer = null;
+
+    function setStart(lat, lon, label){
+      if(startMarker){ map.removeLayer(startMarker); }
+      startMarker = L.marker([lat, lon], { draggable:false }).addTo(map).bindPopup('<b>Start</b>' + (label?`<div class="muted">${label}</div>`:''));
+      document.getElementById('from').value = label || `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    }
+    function setEnd(lat, lon, label){
+      if(endMarker){ map.removeLayer(endMarker); }
+      endMarker = L.marker([lat, lon], { draggable:false, opacity:0.95, icon: new L.Icon.Default() }).addTo(map).bindPopup('<b>End</b>' + (label?`<div class="muted">${label}</div>`:''));
+      document.getElementById('to').value = label || `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+    }
+
+    function fitToMarkers(){
+      const group = [];
+      if(startMarker) group.push(startMarker.getLatLng());
+      if(endMarker) group.push(endMarker.getLatLng());
+      if(group.length===1){ map.flyTo(group[0], 15); }
+      if(group.length===2){ map.fitBounds(L.latLngBounds(group), { padding:[40,40] }); }
+    }
+
+    // ------------------------ Geolocation ------------------------
+    function locateMe(cb){
+      if(!navigator.geolocation){ alert('Geolocation not supported'); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos)=>{ const {latitude, longitude} = pos.coords; cb(latitude, longitude); },
+        (err)=>{ console.warn(err); alert('Could not get your location'); }
+      );
+    }
+
+    document.getElementById('locBtn').addEventListener('click', ()=>{
+      locateMe((lat, lon)=>{ map.flyTo([lat, lon], 15); L.circle([lat, lon], {radius: 25, color:'#7dd3fc'}).addTo(map); });
+    });
+
+    // ------------------------ Geocoding (Nominatim) ------------------------
+    async function searchAddress(q){
+      const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if(!res.ok) throw new Error('Geocoding failed');
+      return res.json();
+    }
+    async function reverseGeocode(lat, lon){
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if(!res.ok) return null; return res.json();
+    }
+
+    function renderResults(containerId, list, onChoose){
+      const el = document.getElementById(containerId);
+      el.innerHTML = '';
+      list.forEach(item=>{
+        const div = document.createElement('div');
+        div.className = 'result';
+        div.textContent = item.display_name;
+        div.addEventListener('click', ()=> onChoose(item));
+        el.appendChild(div);
+      });
+    }
+
+    document.getElementById('fromSearch').addEventListener('click', async ()=>{
+      const q = document.getElementById('from').value.trim(); if(!q) return;
+      try { const data = await searchAddress(q); renderResults('fromResults', data, (it)=>{
+        setStart(parseFloat(it.lat), parseFloat(it.lon), it.display_name); fitToMarkers();
+        document.getElementById('fromResults').innerHTML = '';
+      }); } catch(e){ alert('Search failed'); }
+    });
+    document.getElementById('toSearch').addEventListener('click', async ()=>{
+      const q = document.getElementById('to').value.trim(); if(!q) return;
+      try { const data = await searchAddress(q); renderResults('toResults', data, (it)=>{
+        setEnd(parseFloat(it.lat), parseFloat(it.lon), it.display_name); fitToMarkers();
+        document.getElementById('toResults').innerHTML = '';
+      }); } catch(e){ alert('Search failed'); }
+    });
+
+    document.getElementById('fromUseMe').addEventListener('click', ()=>{
+      locateMe(async (lat, lon)=>{
+        const rev = await reverseGeocode(lat, lon); setStart(lat, lon, rev?.display_name || null); fitToMarkers();
+      });
+    });
+    document.getElementById('toUseMe').addEventListener('click', ()=>{
+      locateMe(async (lat, lon)=>{
+        const rev = await reverseGeocode(lat, lon); setEnd(lat, lon, rev?.display_name || null); fitToMarkers();
+      });
+    });
+
+    // ------------------------ Map Click Picking ------------------------
+    let pickMode = 'none';
+    document.querySelectorAll('.segmented button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('.segmented button').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        pickMode = btn.dataset.pick;
+      });
+    });
+
+    map.on('click', async (e)=>{
+      if(pickMode==='none') return;
+      const {lat, lng} = e.latlng;
+      const rev = await reverseGeocode(lat, lng);
+      if(pickMode==='start') setStart(lat, lng, rev?.display_name || null);
+      if(pickMode==='end') setEnd(lat, lng, rev?.display_name || null);
+      fitToMarkers();
+    });
+
+    // ------------------------ Routing (OSRM) ------------------------
+    function parseLatLon(value){
+      // Accept "lat, lon" format
+      const m = value.match(/(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/);
+      if(m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+      return null;
+    }
+
+    function getCoordsFromInputs(){
+      const f = document.getElementById('from').value.trim();
+      const t = document.getElementById('to').value.trim();
+      const from = parseLatLon(f) || (startMarker ? { lat: startMarker.getLatLng().lat, lon: startMarker.getLatLng().lng } : null);
+      const to   = parseLatLon(t) || (endMarker ? { lat: endMarker.getLatLng().lat,   lon: endMarker.getLatLng().lng }   : null);
+      return { from, to };
+    }
+
+    function formatDistance(m){
+      if(m < 950) return `${Math.round(m)} m`;
+      return `${(m/1000).toFixed(1)} km`;
+    }
+    function formatDuration(s){
+      const h = Math.floor(s/3600); const m = Math.round((s%3600)/60);
+      if(h>0) return `${h} hr ${m} min`; return `${m} min`;
+    }
+
+    async function route(){
+      const { from, to } = getCoordsFromInputs();
+      if(!from || !to){ alert('Please set both start and end.'); return; }
+      const profile = document.getElementById('mode').value; // driving/walking/cycling
+      const url = `https://router.project-osrm.org/route/v1/${profile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson&steps=true&annotations=distance,duration`;
+      const res = await fetch(url);
+      if(!res.ok){ alert('Routing failed'); return; }
+      const data = await res.json();
+      if(!data.routes || !data.routes.length){ alert('No route found'); return; }
+
+      const best = data.routes[0];
+      const line = L.geoJSON(best.geometry, { style: { weight: 6, opacity: .9 } });
+      if(routeLayer) map.removeLayer(routeLayer); routeLayer = line.addTo(map);
+
+      // Summary
+      document.getElementById('summary').innerHTML = `
+        <div><b>${formatDistance(best.distance)}</b> • <b>${formatDuration(best.duration)}</b> • ${profile}</div>
+      `;
+
+      // Steps
+      const stepsEl = document.getElementById('steps');
+      stepsEl.innerHTML = '';
+      best.legs.forEach((leg, li)=>{
+        leg.steps.forEach((s, i)=>{
+          const d = document.createElement('div');
+          d.className = 'step';
+          d.innerHTML = `<div><b>${s.maneuver.instruction || s.name || 'Continue'}</b></div>
+                         <div class="muted">${formatDistance(s.distance)} • ${formatDuration(s.duration)}</div>`;
+          d.addEventListener('click', ()=>{
+            const coords = s.geometry.coordinates.map(([lon, lat])=>[lat, lon]);
+            const b = L.latLngBounds(coords);
+            map.fitBounds(b.pad(0.5));
+          });
+          stepsEl.appendChild(d);
+        });
+      });
+
+      fitToMarkers();
+    }
+
+    document.getElementById('route').addEventListener('click', route);
+    document.getElementById('mode').addEventListener('change', ()=>{ if(routeLayer) route(); });
+
+    // Swap
+    document.getElementById('swap').addEventListener('click', ()=>{
+      const fromInput = document.getElementById('from');
+      const toInput = document.getElementById('to');
+      const temp = fromInput.value; fromInput.value = toInput.value; toInput.value = temp;
+      // Also swap markers
+      const sm = startMarker, em = endMarker; startMarker = em; endMarker = sm;
+      if(routeLayer) route(); else fitToMarkers();
+    });
+
+    // Clear
+    document.getElementById('clearBtn').addEventListener('click', ()=>{
+      if(startMarker){ map.removeLayer(startMarker); startMarker = null; }
+      if(endMarker){ map.removeLayer(endMarker); endMarker = null; }
+      if(routeLayer){ map.removeLayer(routeLayer); routeLayer = null; }
+      document.getElementById('from').value = '';
+      document.getElementById('to').value = '';
+      document.getElementById('steps').innerHTML = '';
+      document.getElementById('summary').textContent = 'No route yet.';
+    });
+
+    // Try immediate geolocation for nicer default view
+    locateMe((lat, lon)=>{ map.setView([lat, lon], 14); });
+  </script>
+</body>
+</html>
